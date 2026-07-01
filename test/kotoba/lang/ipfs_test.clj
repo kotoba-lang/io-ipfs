@@ -1,86 +1,75 @@
 (ns kotoba.lang.ipfs-test
-  "JVM-only: exercises kotoba.lang.ipfs's :clj branch against a real,
-  dependency-free mock Kubo HTTP server (com.sun.net.httpserver.HttpServer,
-  part of the JDK -- no mock-server library needed). Plain .clj, not .cljc,
-  since this test infrastructure only makes sense on the JVM; the source
-  under test (kotoba.lang.ipfs) stays .cljc for CLJS/browser portability."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [clojure.string :as str]
-            [kotoba.lang.ipfs :as ipfs]
-            [cheshire.core :as json])
-  (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
-           [java.net InetSocketAddress]
-           [java.io ByteArrayOutputStream]))
+  "JVM tests for kotoba.lang.ipfs. The source is portable .cljc; these tests
+  exercise the pure helpers (platform-uniform) and the synchronous JVM
+  orchestration against a mock IHttp (no real HTTP server). CLJS Promise
+  paths are covered by host-side integration tests."
+  (:require [clojure.test :refer [deftest is testing]]
+            [kotoba.lang.ipfs :as ipfs])
+  (:import [java.nio.charset StandardCharsets]))
 
-(defn- slurp-bytes [^java.io.InputStream is]
-  (let [out (ByteArrayOutputStream.)]
-    (.transferTo is out)
-    (.toByteArray out)))
+(defn- b [^String s] (.getBytes s StandardCharsets/UTF_8))
 
-(defn- respond! [^HttpExchange exchange status ^String body]
-  (let [bytes (.getBytes body "UTF-8")]
-    (.sendResponseHeaders exchange status (count bytes))
-    (with-open [os (.getResponseBody exchange)]
-      (.write os bytes))))
+;; A mock IHttp: routes by URL, returns canned {:status :body bytes}.
+;; :post-file handlers receive the content so a test can assert it was passed.
+(defn- mock-http [routes]
+  (reify ipfs/IHttp
+    (-get [_ url]
+      (if-let [body (get-in routes [:get url])]
+        {:status 200 :body body}
+        {:status 404 :body (b "not found")}))
+    (-post [_ url]
+      (if-let [body (get-in routes [:post url])]
+        {:status 200 :body body}
+        {:status 404 :body (b "not found")}))
+    (-post-file [_ url content]
+      (if-let [handler (get-in routes [:post-file url])]
+        (handler content)
+        {:status 404 :body (b "not found")}))))
 
-(defn- mock-kubo-handler
-  "Routes the same 3 endpoints kotoba.lang.ipfs calls, mirroring Kubo's
-  real response shapes closely enough to prove the client parses them
-  correctly."
-  [^HttpExchange exchange]
-  (let [path (.getPath (.getRequestURI exchange))]
-    (cond
-      (= path "/api/v0/add")
-      (let [body (slurp-bytes (.getRequestBody exchange))]
-        ;; Prove the multipart body actually contains our content.
-        (if (clojure.string/includes? (String. body "UTF-8") "hello kotoba")
-          (respond! exchange 200 "{\"Name\":\"file\",\"Hash\":\"bafyhello123\",\"Size\":\"12\"}\n")
-          (respond! exchange 400 "unexpected body")))
+(deftest url-test
+  (testing "endpoint URLs trim trailing slashes"
+    (is (= "http://h:5001/api/v0/add?pin=true&cid-version=1"
+           (ipfs/add-url "http://h:5001/")))
+    (is (= "http://gw/ipfs/bafyfoo"
+           (ipfs/gateway-url "http://gw/" "bafyfoo")))
+    (is (= "http://h:5001/api/v0/version"
+           (ipfs/version-url "http://h:5001")))
+    (is (= "http://h:5001/api/v0/id"
+           (ipfs/id-url "http://h:5001//")))))
 
-      (clojure.string/starts-with? path "/ipfs/")
-      (respond! exchange 200 "blob-content-for-bafyhello123")
-
-      (= path "/api/v0/version")
-      (respond! exchange 200 (json/generate-string {:Version "0.30.0"}))
-
-      (= path "/api/v0/id")
-      (respond! exchange 200 (json/generate-string {:ID "12D3KooWtest"}))
-
-      :else
-      (respond! exchange 404 "not found"))))
-
-(def ^:dynamic *base-url* nil)
-(def ^:private server (atom nil))
-
-(defn- with-mock-kubo [f]
-  (let [s (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)]
-    (.createContext s "/" (reify HttpHandler (handle [_ ex] (mock-kubo-handler ex))))
-    (.start s)
-    (reset! server s)
-    (try
-      (binding [*base-url* (str "http://127.0.0.1:" (.getPort (.getAddress s)))]
-        (f))
-      (finally
-        (.stop s 0)))))
-
-(use-fixtures :each with-mock-kubo)
+(deftest parse-add-response-test
+  (testing "NDJSON: last non-blank line is the root"
+    (is (= {:cid "bafy123" :size 42}
+           (ipfs/parse-add-response
+             (str "{\"Name\":\"a\",\"Hash\":\"bafyA\",\"Size\":\"1\"}\n"
+                  "{\"Name\":\"file\",\"Hash\":\"bafy123\",\"Size\":\"42\"}")))))
+  (testing "single-line response"
+    (is (= {:cid "bafyZ" :size 7}
+           (ipfs/parse-add-response "{\"Hash\":\"bafyZ\",\"Size\":\"7\"}")))))
 
 (deftest pin-blob-test
-  (testing "pins a string blob and parses the NDJSON response"
-    (let [result (ipfs/pin-blob *base-url* "hello kotoba")]
-      (is (= "bafyhello123" (:cid result)))
-      (is (= 12 (:size result)))))
-
-  (testing "throws on an unexpected server response"
-    (is (thrown? clojure.lang.ExceptionInfo
-                 (ipfs/pin-blob *base-url* "wrong content")))))
+  (testing "pins + parses the NDJSON add response"
+    (let [http (mock-http {:post-file {(ipfs/add-url "http://k")
+                                       (fn [_] {:status 200 :body (b "{\"Hash\":\"bafyP\",\"Size\":\"99\"}")})}})]
+      (is (= {:cid "bafyP" :size 99} (ipfs/pin-blob http "http://k" "hello")))))
+  (testing "the content is passed through to the transport"
+    (let [seen (atom nil)
+          http (mock-http {:post-file {(ipfs/add-url "http://k")
+                                       (fn [c] (reset! seen c) {:status 200 :body (b "{\"Hash\":\"x\",\"Size\":\"1\"}")})}})]
+      (ipfs/pin-blob http "http://k" "payload")
+      (is (= "payload" @seen))))
+  (testing "throws ex-info on non-2xx"
+    (let [http (mock-http {:post-file {(ipfs/add-url "http://k")
+                                       (fn [_] {:status 500 :body (b "boom")})}})]
+      (is (thrown? clojure.lang.ExceptionInfo (ipfs/pin-blob http "http://k" "x"))))))
 
 (deftest fetch-blob-test
-  (let [bytes (ipfs/fetch-blob *base-url* "bafyhello123")]
-    (is (bytes? bytes))
-    (is (= "blob-content-for-bafyhello123" (String. bytes "UTF-8")))))
+  (let [http (mock-http {:get {(ipfs/gateway-url "http://gw" "bafyX") (b "blob-bytes")}})]
+    (is (= "blob-bytes"
+           (String. ^bytes (ipfs/fetch-blob http "http://gw" "bafyX") StandardCharsets/UTF_8)))))
 
 (deftest node-info-test
-  (let [info (ipfs/node-info *base-url*)]
-    (is (= "12D3KooWtest" (:id info)))
-    (is (= "0.30.0" (:version info)))))
+  (let [http (mock-http {:post {(ipfs/version-url "http://k") (b "{\"Version\":\"0.30.0\"}")
+                             (ipfs/id-url      "http://k") (b "{\"ID\":\"12D3KooW\"}")}})]
+    (is (= {:id "12D3KooW" :version "0.30.0"}
+           (ipfs/node-info http "http://k")))))

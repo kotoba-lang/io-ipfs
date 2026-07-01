@@ -1,0 +1,8 @@
+{:paths ["src" "test"]
+ :tasks
+ {test
+  {:doc "Run kotoba.lang.ipfs tests (pure helpers + JVM orchestration; no network)."
+   :task (do (require 'clojure.test 'kotoba.lang.ipfs-test)
+             (let [r (clojure.test/run-tests 'kotoba.lang.ipfs-test)]
+               (when (pos? (+ (:fail r) (:error r)))
+                 (System/exit 1))))}}}
