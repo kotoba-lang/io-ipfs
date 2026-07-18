@@ -21,6 +21,15 @@ JVM is synchronous (returns plain values); CLJS is async (returns `js/Promise`,
 mirroring the original TypeScript). JSON parsing uses `clojure.data.json` (JVM)
 / `js/JSON.parse` (CLJS) behind reader conditionals.
 
+## Kotoba pilot
+
+The transport-neutral HTTP 2xx admission predicate also has a closed,
+two-module Kotoba implementation under `kotoba/`. `kotoba-project.edn` is
+checked and compiled in CI with the checksum-verified released native CLI, and
+the resulting restricted ESM is tested against the same 200--299 boundary.
+The wider IPFS transport and JSON data model remain genuine `.cljc`; they are
+not relabelled until Kotoba has safe bounded maps, byte values, and host ports.
+
 ## Provenance
 
 Relocated 2026-07-01 from `etzhayyim/root:20-actors/etzhayyim-sdk/src/ipfs.ts`
