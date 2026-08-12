@@ -52,5 +52,10 @@ this package), which injects its own `IHttp` when calling `pin-blob`.
 ```bash
 clojure -M:lint     # clj-kondo (errors fail)
 clojure -M:test     # cognitect test-runner (pure helpers + JVM orchestration, no network)
-bb test             # babashka
 ```
+
+`bb test` is **unavailable**: babashka was retired as this workspace's script
+host (ADR-2607173000) and the conversion left `scripts/tasks.edn` empty, so the
+task has had no runnable path since 2026-07-17 (ADR-2608131600). The recovered
+babashka body is in `scripts/tasks-complex.edn`. `clojure -M:test` above runs
+the same suite — 5 tests / 11 assertions, verified 2026-08-13.
