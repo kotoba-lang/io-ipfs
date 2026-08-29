@@ -21,7 +21,7 @@
     (fetch-blob http gateway-url cid)   => bytes                          | js/Promise
     (node-info  http api-url)           => {:id String :version String}   | js/Promise
   where `http` satisfies IHttp."
-  (:require #?(:clj [clojure.data.json :as json])
+  (:require #?(:clj [json.data-json :as json])
             [clojure.string :as str]))
 
 ;; ---------------------------------------------------------------------------
