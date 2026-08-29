@@ -18,7 +18,7 @@ injected. This is the kotoba-lang layer contract (ADR-2606302300 §Step-1: pure
 `.cljc`, zero network I/O, zero vendor SDK).
 
 JVM is synchronous (returns plain values); CLJS is async (returns `js/Promise`,
-mirroring the original TypeScript). JSON parsing uses `clojure.data.json` (JVM)
+mirroring the original TypeScript). JSON parsing uses `json.data-json` (JVM)
 / `js/JSON.parse` (CLJS) behind reader conditionals.
 
 ## Kotoba pilot
