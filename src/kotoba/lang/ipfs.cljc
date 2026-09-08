@@ -22,7 +22,7 @@
     (node-info  http api-url)           => {:id String :version String}   | js/Promise
   where `http` satisfies IHttp."
   (:require #?(:clj [json.data-json :as json])
-            [clojure.string :as str]))
+            [kotoba.lang.text :as str]))
 
 ;; ---------------------------------------------------------------------------
 ;; Capability seam — host-injected transport. Core never touches the network.
