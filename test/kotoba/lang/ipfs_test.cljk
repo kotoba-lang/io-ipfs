@@ -3,7 +3,7 @@
   exercise the pure helpers (platform-uniform) and the synchronous JVM
   orchestration against a mock IHttp (no real HTTP server). CLJS Promise
   paths are covered by host-side integration tests."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.lang.ipfs :as ipfs])
   (:import [java.nio.charset StandardCharsets]))
 
