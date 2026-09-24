@@ -3,11 +3,10 @@
   exercise the pure helpers (platform-uniform) and the synchronous JVM
   orchestration against a mock IHttp (no real HTTP server). CLJS Promise
   paths are covered by host-side integration tests."
-  (:require [kotoba.test :refer [deftest is testing]]
-            [kotoba.lang.ipfs :as ipfs])
-  (:import [java.nio.charset StandardCharsets]))
+  (:require [kotoba.bytes :as kbytes] [kotoba.test :refer [deftest is testing]]
+            [kotoba.lang.ipfs :as ipfs]))
 
-(defn- b [^String s] (.getBytes s StandardCharsets/UTF_8))
+(defn- b [^String s] (kbytes/utf8-bytes s))
 
 ;; A mock IHttp: routes by URL, returns canned {:status :body bytes}.
 ;; :post-file handlers receive the content so a test can assert it was passed.
@@ -66,7 +65,7 @@
 (deftest fetch-blob-test
   (let [http (mock-http {:get {(ipfs/gateway-url "http://gw" "bafyX") (b "blob-bytes")}})]
     (is (= "blob-bytes"
-           (String. ^bytes (ipfs/fetch-blob http "http://gw" "bafyX") StandardCharsets/UTF_8)))))
+           (kbytes/utf8-string ^bytes (ipfs/fetch-blob http "http://gw" "bafyX"))))))
 
 (deftest node-info-test
   (let [http (mock-http {:post {(ipfs/version-url "http://k") (b "{\"Version\":\"0.30.0\"}")
